@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Data and outputs
+data/raw/
+data/processed/
+outputs/
+
+# OS / editor files
+.DS_Store
+.vscode/
+
+# Large model files
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68","wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canine-gait-cv"
+version = "0.1.0"
+description = "Modular computer vision pipeline for canine gait analysis"
+requires-python = ">=3.10"
+dependencies = [
+	"numpy",
+	"opencv-python",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
