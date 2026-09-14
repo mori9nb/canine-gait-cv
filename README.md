@@ -18,7 +18,8 @@ The final objective is to:
 
 ## Current Status
 
-The current version contains the foundational structure of the pipeline. Real YOLO detection and pose estimation are not integrated yet.
+The current version contains the foundational pipeline and real YOLO-based dog
+detection. Pose estimation is not integrated yet.
 
 Implemented modules:
 
@@ -53,16 +54,12 @@ src/canine_gait_cv/
 - Define a standard detection data structure
 - Define a detector interface
 - Add a dummy fixed-box detector for pipeline testing
+- Add an Ultralytics YOLO adapter for real dog detection
+- Preserve the common `detect(frame) -> list[Detection]` interface
 
 ## Testing
 
 The project uses `pytest`.
-
-Current test status:
-
-```text
-15 passed
-```
 
 Run tests with:
 
@@ -85,6 +82,29 @@ Install the project in editable mode:
 python -m pip install -e ".[dev]"
 ```
 
+Install the optional YOLO dependency when running real dog detection:
+
+```bash
+python -m pip install -e ".[dev,yolo]"
+```
+
+## Real Dog Detection
+
+Run YOLO on a gait video and save an annotated preview:
+
+```bash
+python scripts/detect_dog_video.py \
+    data/raw/dog_test.mp4 \
+    outputs/detection/dog_test_detected.mp4 \
+    --weights yolo11n.pt \
+    --confidence 0.25 \
+    --width 1280
+```
+
+The first run downloads the requested pretrained weights if they are not already
+available. The detector keeps only the COCO `dog` class, clips coordinates to the
+frame, and the demo selects the largest detected dog as the gait subject.
+
 ## Project Structure
 
 ```text
@@ -106,7 +126,7 @@ canine-gait-cv/
 
 Planned next steps:
 
-1. Add a real dog detector, likely YOLO-based.
+1. Validate YOLO dog detection on representative gait videos.
 2. Use dog detection to define a hind-limb region of interest.
 3. Add keypoint structures for canine hind-limb joints:
    - hip

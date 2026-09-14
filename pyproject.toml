@@ -15,7 +15,13 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.optional-dependencies]
 dev = [
     "pytest",
+]
+yolo = [
+    "ultralytics>=8.3,<9",
 ]
