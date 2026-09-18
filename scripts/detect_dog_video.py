@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 import cv2
 
 from canine_gait_cv.detection import YOLODetector, select_largest_detection
+from canine_gait_cv.detection.csv_export import(
+    DETECTION_CSV_FIELDS,
+    build_detection_csv_row,
+)
 from canine_gait_cv.preprocessing import resize_frame
 from canine_gait_cv.video import iter_video_frames, read_video_metadata
 from canine_gait_cv.visualization import draw_bounding_box
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,6 +34,12 @@ def parse_args() -> argparse.Namespace:
         help="Resize frames to this width before detection; use 0 for original size.",
     )
     parser.add_argument("--max-frames", type=int, help="Optional debug frame limit.")
+    parser.add_argument(
+        "--csv-output",
+        type=Path,
+        help="Optional path for per-frame detection data.",
+    )
+
     return parser.parse_args()
 
 
@@ -52,7 +64,23 @@ def main() -> None:
     writer: cv2.VideoWriter | None = None
     processed_frames = 0
     detected_frames = 0
+    csv_file = None
+    csv_writer = None
 
+    if args.csv_output is not None:
+        args.csv_output.parent.mkdir(parents=True, exist_ok=True)
+
+        csv_file = args.csv_output.open(
+            "w",
+            newline="",
+            encoding="utf-8",
+        )
+
+        csv_writer = csv.DictWriter(
+            csv_file,
+            fieldnames=DETECTION_CSV_FIELDS,
+        )
+        csv_writer.writeheader()
     try:
         for video_frame in iter_video_frames(args.input):
             frame = video_frame.image
@@ -82,12 +110,26 @@ def main() -> None:
                     raise RuntimeError(f"Could not create output video: {args.output}")
 
             writer.write(annotated_frame)
+
+            if csv_writer is not None:
+                csv_writer.writerow(
+                    build_detection_csv_row(
+                        frame_index=video_frame.index,
+                        timestamp_seconds=video_frame.timestamp_seconds,
+                        frame_width=frame.shape[1],
+                        frame_height=frame.shape[0],
+                        detection=detection,
+                    )
+                )
             processed_frames += 1
             if args.max_frames is not None and processed_frames >= args.max_frames:
                 break
     finally:
         if writer is not None:
             writer.release()
+
+        if csv_file is not None:
+            csv_file.close()
 
     if processed_frames == 0:
         raise RuntimeError(f"Input video contains no readable frames: {args.input}")
