@@ -130,9 +130,10 @@ def load_superanimal_multi_json(
             _parse_individual(
                 item,
                 frame_index=frame_index,
-                individual_index=index,
+                individual_index=individual_index,
             )
-            for index in range(len(bodyparts))
+            for individual_index in range(len(bodyparts))
+            if not _is_empty_dlc_slot(item, individual_index)
         )
         frames.append(
             DeepLabCutMultiPoseFrame(
@@ -161,6 +162,25 @@ def _parse_frame(
         pose=individual.pose,
     )
 
+def _is_empty_dlc_slot(item: dict, individual_index: int) -> bool:
+    """Return True for an unused individual slot padded by DeepLabCut."""
+    try:
+        raw_points = item["bodyparts"][individual_index]
+        raw_box = item["bboxes"][individual_index]
+        bbox_score = float(item["bbox_scores"][individual_index])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+
+    return (
+        bbox_score == -1.0
+        and len(raw_box) == 4
+        and all(float(value) == -1.0 for value in raw_box)
+        and all(
+            len(point) >= 3
+            and all(float(value) == -1.0 for value in point[:3])
+            for point in raw_points
+        )
+    )
 
 def _parse_individual(
     item: Any,
@@ -206,15 +226,19 @@ def _parse_individual(
             confidence=float(raw_point[2]),
         )
 
-    box = BoundingBox(
-        x_min=floor(float(raw_box[0])),
-        y_min=floor(float(raw_box[1])),
-        x_max=ceil(float(raw_box[2])),
-        y_max=ceil(float(raw_box[3])),
-    )
-    if box.area == 0:
+   # DeepLabCut exports bboxes as [x, y, width, height].
+    x, y, width, height = map(float, raw_box)
+
+    if width <= 0.0 or height <= 0.0:
         raise ValueError(f"Frame {frame_index}: bbox area must be positive.")
 
+    box = BoundingBox(
+        x_min=floor(x),
+        y_min=floor(y),
+        x_max=ceil(x + width),
+        y_max=ceil(y + height),
+    )
+    
     return DeepLabCutIndividual(
         detection_index=individual_index,
         dog_box=box,

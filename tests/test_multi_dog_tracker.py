@@ -74,3 +74,32 @@ def test_reset_restarts_track_ids() -> None:
     result = tracker.update(_frame(0, _dog(0, 300)))
 
     assert result.individuals[0].track_id == 0
+
+def test_max_active_tracks_discards_extra_unmatched_detection() -> None:
+    tracker = MultiDogTracker(max_active_tracks=3)
+
+    tracker.update(
+        _frame(
+            0,
+            _dog(0, 10),
+            _dog(1, 200),
+            _dog(2, 400),
+        )
+    )
+
+    result = tracker.update(
+        _frame(
+            1,
+            _dog(0, 15),
+            _dog(1, 205),
+            _dog(2, 405),
+            _dog(3, 700),
+        )
+    )
+
+    assert len(result.individuals) == 3
+    assert {item.track_id for item in result.individuals} == {0, 1, 2}
+
+def test_max_active_tracks_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="max_active_tracks must be positive"):
+        MultiDogTracker(max_active_tracks=0)

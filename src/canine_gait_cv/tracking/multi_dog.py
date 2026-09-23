@@ -48,6 +48,7 @@ class MultiDogTracker:
         max_missed_frames: int = 5,
         max_normalized_distance: float = 1.5,
         iou_weight: float = 0.35,
+        max_active_tracks: int | None = None,
     ) -> None:
         if max_missed_frames < 0:
             raise ValueError("max_missed_frames cannot be negative.")
@@ -55,7 +56,10 @@ class MultiDogTracker:
             raise ValueError("max_normalized_distance must be positive.")
         if not 0.0 <= iou_weight <= 1.0:
             raise ValueError("iou_weight must be between 0 and 1.")
+        if max_active_tracks is not None and max_active_tracks <= 0:
+            raise ValueError("max_active_tracks must be positive.")
 
+        self.max_active_tracks = max_active_tracks
         self.max_missed_frames = max_missed_frames
         self.max_normalized_distance = max_normalized_distance
         self.iou_weight = iou_weight
@@ -85,11 +89,33 @@ class MultiDogTracker:
         tracked: list[TrackedIndividual] = []
         for detection_index, detection in enumerate(frame.individuals):
             track_id = assignments.get(detection_index)
+
             if track_id is None:
-                track_id = self._create_track(detection, frame.frame_index)
+                capacity_reached = (
+                    self.max_active_tracks is not None
+                    and len(self._tracks) >= self.max_active_tracks
+                )
+
+                if capacity_reached:
+                    continue
+
+                track_id = self._create_track(
+                    detection,
+                    frame.frame_index,
+                )
             else:
-                self._update_track(track_id, detection, frame.frame_index)
-            tracked.append(TrackedIndividual(track_id=track_id, detection=detection))
+                self._update_track(
+                    track_id,
+                    detection,
+                    frame.frame_index,
+                )
+
+            tracked.append(
+                TrackedIndividual(
+                    track_id=track_id,
+                    detection=detection,
+                )
+            )
 
         return TrackedPoseFrame(
             frame_index=frame.frame_index,
