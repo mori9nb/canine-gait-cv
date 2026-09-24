@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
+from canine_gait_cv.quality import DetectionQualityAssessment
 
 from canine_gait_cv.pose import KeypointName, estimate_body_orientation
 from canine_gait_cv.roi import build_pose_hind_limb_roi
@@ -18,6 +19,10 @@ _BASE_FIELDS = (
     "track_id",
     "detection_index",
     "bbox_confidence",
+    "accepted_for_training",
+    "quality_score",
+    "quality_flags",
+    "reliable_keypoint_fraction",
     "bbox_x_min",
     "bbox_y_min",
     "bbox_x_max",
@@ -53,6 +58,11 @@ def build_tracked_gait_csv_rows(
     timestamp_seconds: float,
     frame_width: int,
     frame_height: int,
+    quality_by_detection_index: Mapping[
+        int,
+        DetectionQualityAssessment,
+    ] | None = None,
+    accepted_only: bool = False,
 ) -> list[dict[str, object]]:
     """Create one CSV row per observed dog, or one empty-frame row."""
 
@@ -60,7 +70,10 @@ def build_tracked_gait_csv_rows(
         raise ValueError("timestamp_seconds cannot be negative.")
     if frame_width <= 0 or frame_height <= 0:
         raise ValueError("frame dimensions must be positive.")
-
+    if accepted_only and quality_by_detection_index is None:
+        raise ValueError(
+            "accepted_only requires quality assessments."
+        )
     if not frame.individuals:
         return [
             _empty_row(
@@ -74,6 +87,19 @@ def build_tracked_gait_csv_rows(
     rows: list[dict[str, object]] = []
     for tracked in frame.individuals:
         detection = tracked.detection
+        quality = (
+            None
+            if quality_by_detection_index is None
+            else quality_by_detection_index.get(
+                detection.detection_index
+            )
+        )
+
+        if accepted_only and (
+            quality is None
+            or not quality.accepted_for_training
+        ):
+            continue
         orientation = estimate_body_orientation(detection.pose, detection.dog_box)
         roi = build_pose_hind_limb_roi(
             detection.pose,
@@ -102,6 +128,26 @@ def build_tracked_gait_csv_rows(
                 "orientation_confidence": round(orientation.confidence, 6),
             }
         )
+        if quality is not None:
+            row.update(
+                {
+                    "accepted_for_training": (
+                        quality.accepted_for_training
+                    ),
+                    "quality_score": round(
+                        quality.quality_score,
+                        6,
+                    ),
+                    "quality_flags": "|".join(
+                        flag.value
+                        for flag in quality.flags
+                    ),
+                    "reliable_keypoint_fraction": round(
+                        quality.reliable_keypoint_fraction,
+                        6,
+                    ),
+                }
+            )
         if roi is not None:
             row.update(
                 {
@@ -121,7 +167,18 @@ def build_tracked_gait_csv_rows(
             row[f"{prefix}_y"] = round(point.y, 6)
             row[f"{prefix}_confidence"] = round(point.confidence, 6)
         rows.append(row)
-    return rows
+        
+    if rows:
+        return rows
+
+    return [
+        _empty_row(
+            frame_index=frame.frame_index,
+            timestamp_seconds=timestamp_seconds,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+    ]
 
 
 def write_tracked_gait_csv(

@@ -16,6 +16,10 @@ from canine_gait_cv.pose import (
 from canine_gait_cv.preprocessing import BoundingBox
 from canine_gait_cv.tracking import TrackedIndividual, TrackedPoseFrame
 
+from canine_gait_cv.quality import (
+    DetectionQualityAssessment,
+    DetectionQualityFlag,
+)
 
 def _tracked_frame() -> TrackedPoseFrame:
     pose = DogPose(
@@ -117,3 +121,54 @@ def test_write_tracked_gait_csv_writes_stable_header(tmp_path) -> None:
     assert tuple(saved[0].keys()) == TRACKED_GAIT_CSV_FIELDS
     assert saved[0]["track_id"] == "7"
     assert saved[0]["orientation"] == "right"
+
+def test_quality_metadata_is_included_in_csv_row() -> None:
+    quality = DetectionQualityAssessment(
+        detection_index=3,
+        accepted_for_training=True,
+        flags=(DetectionQualityFlag.VALID,),
+        bbox_confidence=0.9876543,
+        reliable_keypoint_fraction=0.8,
+        quality_score=0.790123,
+    )
+
+    rows = build_tracked_gait_csv_rows(
+        _tracked_frame(),
+        timestamp_seconds=0.4,
+        frame_width=640,
+        frame_height=480,
+        quality_by_detection_index={3: quality},
+    )
+
+    row = rows[0]
+
+    assert row["accepted_for_training"] is True
+    assert row["quality_score"] == pytest.approx(0.790123)
+    assert row["quality_flags"] == "valid"
+    assert row["reliable_keypoint_fraction"] == pytest.approx(0.8)
+
+
+def test_clean_export_excludes_uncertain_detection() -> None:
+    quality = DetectionQualityAssessment(
+        detection_index=3,
+        accepted_for_training=False,
+        flags=(
+            DetectionQualityFlag.LOW_POSE_COVERAGE,
+            DetectionQualityFlag.OVERLAPPING_DETECTION,
+        ),
+        bbox_confidence=0.9876543,
+        reliable_keypoint_fraction=0.2,
+        quality_score=0.197531,
+    )
+
+    rows = build_tracked_gait_csv_rows(
+        _tracked_frame(),
+        timestamp_seconds=0.4,
+        frame_width=640,
+        frame_height=480,
+        quality_by_detection_index={3: quality},
+        accepted_only=True,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["detected"] is False
