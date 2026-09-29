@@ -131,6 +131,12 @@ class AppearanceGallery:
     def clear_track(self, track_id: int) -> None:
         self._samples.pop(track_id, None)
 
+    def clear(self) -> None:
+        """Remove every stored appearance sample."""
+
+        self._samples.clear()
+        self._dimension = None
+
     @staticmethod
     def _normalized_vector(
         vector: tuple[float, ...],

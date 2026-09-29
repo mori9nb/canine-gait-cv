@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import hypot
 
-from canine_gait_cv.pose import DeepLabCutIndividual, DeepLabCutMultiPoseFrame
+from canine_gait_cv.appearance import (
+    AppearanceEmbedding,
+    AppearanceGallery,
+)
+from canine_gait_cv.pose import (
+    DeepLabCutIndividual,
+    DeepLabCutMultiPoseFrame,
+)
 from canine_gait_cv.preprocessing import BoundingBox
-
+from canine_gait_cv.quality import DetectionQualityAssessment
 
 @dataclass(frozen=True)
 class TrackedIndividual:
@@ -49,6 +57,8 @@ class MultiDogTracker:
         max_normalized_distance: float = 1.5,
         iou_weight: float = 0.35,
         max_active_tracks: int | None = None,
+        appearance_gallery: AppearanceGallery | None = None,
+        appearance_weight: float = 1.0,
     ) -> None:
         if max_missed_frames < 0:
             raise ValueError("max_missed_frames cannot be negative.")
@@ -58,11 +68,15 @@ class MultiDogTracker:
             raise ValueError("iou_weight must be between 0 and 1.")
         if max_active_tracks is not None and max_active_tracks <= 0:
             raise ValueError("max_active_tracks must be positive.")
-
+        if appearance_weight < 0.0:
+            raise ValueError("appearance_weight cannot be negative.")
+        
         self.max_active_tracks = max_active_tracks
         self.max_missed_frames = max_missed_frames
         self.max_normalized_distance = max_normalized_distance
         self.iou_weight = iou_weight
+        self.appearance_gallery = appearance_gallery
+        self.appearance_weight = appearance_weight
         self._tracks: dict[int, _TrackState] = {}
         self._next_track_id = 0
         self._last_frame_index: int | None = None
@@ -73,27 +87,64 @@ class MultiDogTracker:
         self._tracks.clear()
         self._next_track_id = 0
         self._last_frame_index = None
+        if self.appearance_gallery is not None:
+            self.appearance_gallery.clear()
 
-    def update(self, frame: DeepLabCutMultiPoseFrame) -> TrackedPoseFrame:
-        """Assign stable IDs to the detections in one chronological frame."""
+    def update(
+        self,
+        frame: DeepLabCutMultiPoseFrame,
+        *,
+        appearance_embeddings: Mapping[
+            int,
+            AppearanceEmbedding,
+        ] | None = None,
+        quality_assessments: Mapping[
+            int,
+            DetectionQualityAssessment,
+        ] | None = None,
+    ) -> TrackedPoseFrame:
+        """Assign stable IDs using geometry and optional appearance."""
 
         if (
             self._last_frame_index is not None
             and frame.frame_index <= self._last_frame_index
         ):
-            raise ValueError("frame indices must be strictly increasing.")
+            raise ValueError(
+                "frame indices must be strictly increasing."
+            )
+
         self._last_frame_index = frame.frame_index
         self._expire_old_tracks(frame.frame_index)
 
-        assignments = self._associate(frame)
+        embeddings = (
+            {}
+            if appearance_embeddings is None
+            else appearance_embeddings
+        )
+        assessments = (
+            {}
+            if quality_assessments is None
+            else quality_assessments
+        )
+
+        assignments = self._associate(
+            frame,
+            embeddings,
+            assessments,
+        )
+
         tracked: list[TrackedIndividual] = []
-        for detection_index, detection in enumerate(frame.individuals):
-            track_id = assignments.get(detection_index)
+
+        for detection_position, detection in enumerate(
+            frame.individuals
+        ):
+            track_id = assignments.get(detection_position)
 
             if track_id is None:
                 capacity_reached = (
                     self.max_active_tracks is not None
-                    and len(self._tracks) >= self.max_active_tracks
+                    and len(self._tracks)
+                    >= self.max_active_tracks
                 )
 
                 if capacity_reached:
@@ -117,6 +168,24 @@ class MultiDogTracker:
                 )
             )
 
+            embedding = embeddings.get(
+                detection.detection_index
+            )
+            assessment = assessments.get(
+                detection.detection_index
+            )
+
+            if (
+                self.appearance_gallery is not None
+                and embedding is not None
+                and assessment is not None
+            ):
+                self.appearance_gallery.update(
+                    track_id,
+                    embedding,
+                    assessment,
+                )
+
         return TrackedPoseFrame(
             frame_index=frame.frame_index,
             individuals=tuple(tracked),
@@ -130,28 +199,117 @@ class MultiDogTracker:
 
         return [self.update(frame) for frame in frames]
 
-    def _associate(self, frame: DeepLabCutMultiPoseFrame) -> dict[int, int]:
+    def _associate(
+        self,
+        frame: DeepLabCutMultiPoseFrame,
+        appearance_embeddings: Mapping[
+            int,
+            AppearanceEmbedding,
+        ],
+        quality_assessments: Mapping[
+            int,
+            DetectionQualityAssessment,
+        ],
+    ) -> dict[int, int]:
         candidates: list[tuple[float, int, int]] = []
-        for detection_index, detection in enumerate(frame.individuals):
+
+        for detection_position, detection in enumerate(
+            frame.individuals
+        ):
             det_x, det_y = _box_center(detection.dog_box)
+
             for track_id, track in self._tracks.items():
-                gap = frame.frame_index - track.last_seen_frame
-                predicted_x = track.center_x + track.velocity_x * gap
-                predicted_y = track.center_y + track.velocity_y * gap
-                scale = max(_box_diagonal(track.box), _box_diagonal(detection.dog_box), 1.0)
-                distance = hypot(det_x - predicted_x, det_y - predicted_y) / scale
+                gap = (
+                    frame.frame_index
+                    - track.last_seen_frame
+                )
+                predicted_x = (
+                    track.center_x
+                    + track.velocity_x * gap
+                )
+                predicted_y = (
+                    track.center_y
+                    + track.velocity_y * gap
+                )
+
+                scale = max(
+                    _box_diagonal(track.box),
+                    _box_diagonal(detection.dog_box),
+                    1.0,
+                )
+
+                distance = hypot(
+                    det_x - predicted_x,
+                    det_y - predicted_y,
+                ) / scale
+
                 if distance > self.max_normalized_distance:
                     continue
-                cost = distance + self.iou_weight * (1.0 - _box_iou(track.box, detection.dog_box))
-                candidates.append((cost, track_id, detection_index))
+
+                cost = (
+                    distance
+                    + self.iou_weight
+                    * (
+                        1.0
+                        - _box_iou(
+                            track.box,
+                            detection.dog_box,
+                        )
+                    )
+                )
+
+                embedding = appearance_embeddings.get(
+                    detection.detection_index
+                )
+                assessment = quality_assessments.get(
+                    detection.detection_index
+                )
+
+                can_use_appearance = (
+                    self.appearance_gallery is not None
+                    and self.appearance_gallery.contains(
+                        track_id
+                    )
+                    and embedding is not None
+                    and assessment is not None
+                    and assessment.accepted_for_training
+                )
+
+                if can_use_appearance:
+                    similarity = (
+                        self.appearance_gallery.similarity(
+                            track_id,
+                            embedding,
+                        )
+                    )
+
+                    cost += self.appearance_weight * (
+                        1.0 - similarity
+                    )
+
+                candidates.append(
+                    (
+                        cost,
+                        track_id,
+                        detection_position,
+                    )
+                )
 
         assignments: dict[int, int] = {}
         used_tracks: set[int] = set()
-        for _, track_id, detection_index in sorted(candidates):
-            if track_id in used_tracks or detection_index in assignments:
+
+        for _, track_id, detection_position in sorted(
+            candidates
+        ):
+            if (
+                track_id in used_tracks
+                or detection_position in assignments
+            ):
                 continue
-            assignments[detection_index] = track_id
+
+            assignments[detection_position] = track_id
             used_tracks.add(track_id)
+
         return assignments
 
     def _create_track(
