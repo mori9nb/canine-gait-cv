@@ -198,3 +198,20 @@ def test_overlapping_detection_does_not_pollute_appearance_gallery() -> None:
 
     assert gallery.sample_count(0) == 1
     assert gallery.prototype(0) == pytest.approx((1.0, 0.0))
+
+def test_uncertain_detection_cannot_create_new_track() -> None:
+    tracker = MultiDogTracker(
+        appearance_gallery=AppearanceGallery(),
+    )
+
+    result = tracker.update(
+        _frame(0, _dog(0, 10)),
+        appearance_embeddings={
+            0: _embedding(1.0, 0.0),
+        },
+        quality_assessments={
+            0: _quality(0, accepted=False),
+        },
+    )
+
+    assert result.individuals == ()

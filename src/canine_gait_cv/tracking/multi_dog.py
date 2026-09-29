@@ -141,6 +141,18 @@ class MultiDogTracker:
             track_id = assignments.get(detection_position)
 
             if track_id is None:
+                assessment = assessments.get(
+                    detection.detection_index
+                )
+
+                is_uncertain_detection = (
+                    assessment is not None
+                    and not assessment.accepted_for_training
+                )
+
+                if is_uncertain_detection:
+                    continue
+
                 capacity_reached = (
                     self.max_active_tracks is not None
                     and len(self._tracks)
