@@ -13,6 +13,12 @@ from canine_gait_cv.gait.stride import (
     StrideInterval,
     detect_hind_paw_gait_phases,
 )
+from canine_gait_cv.gait.normalization import (
+    MeanReferenceTrajectory,
+    NormalizedStrideProfile,
+    build_mean_reference_trajectory,
+    normalize_stride_profiles,
+)
 
 __all__ = [
     "GaitEvent",
@@ -26,4 +32,8 @@ __all__ = [
     "detect_hind_paw_gait_phases",
     "joint_angle_degrees",
     "select_primary_individual",
+    "MeanReferenceTrajectory",
+    "NormalizedStrideProfile",
+    "build_mean_reference_trajectory",
+    "normalize_stride_profiles",
 ]
