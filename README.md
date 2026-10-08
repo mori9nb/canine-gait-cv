@@ -6,11 +6,10 @@ This project detects dogs, estimates anatomical keypoints, tracks individuals, e
 
 ## Project Information
 
-- **Student:** Morteza Nabipour Pashaki
-- **Student ID:** 560602
+- **Developer:** Morteza Nabipour Pashaki
+- **Project type:** Computer Vision Internship Project
 - **Supervisor:** Prof. Francesco La Rosa
 - **Institution:** University of Messina
-- **Activity:** Computer Vision Internship Project
 - **Python:** 3.10
 - **DeepLabCut:** 3.0.1
 
@@ -301,8 +300,8 @@ canine-gait-cv/
 Clone the repository:
 
 ```bash
-git clone https://github.com/students-internship/cv-morteza-pashaki-560602.git
-cd cv-morteza-pashaki-560602
+git clone https://github.com/mori9nb/canine-gait-cv.git
+cd canine-gait-cv
 ```
 
 Create and activate a Python environment:
